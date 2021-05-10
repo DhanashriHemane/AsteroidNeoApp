@@ -40,6 +40,7 @@ import com.github.mikephil.charting.charts.BarChart;
 import com.github.mikephil.charting.data.BarData;
 import com.github.mikephil.charting.data.BarDataSet;
 import com.github.mikephil.charting.data.BarEntry;
+import com.github.mikephil.charting.formatter.IndexAxisValueFormatter;
 import com.squareup.picasso.Picasso;
 
 import org.apache.http.NameValuePair;
@@ -53,6 +54,7 @@ import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -68,7 +70,7 @@ public class MainActivity extends AppCompatActivity {
     private int day,month,year;
     private ProgressDialog progress;
     ServiceHandler shh;
-    List<AstroidPlanet> mPlanetlist = new ArrayList<>();
+    List<AstroidPlanet> mPlanetlist = new ArrayList();
     AstroidAdapter adapter;
     ArrayList<String> arrayList = new ArrayList();
     ArrayList<String> arrayid = new ArrayList();
@@ -90,6 +92,7 @@ public class MainActivity extends AppCompatActivity {
 
         recyclerView = (RecyclerView) findViewById(R.id.recycler_main);
         recyclerView.setLayoutManager(new LinearLayoutManager(MainActivity.this, RecyclerView.VERTICAL, false));
+
 
         button = (Button) findViewById(R.id.btn_submit);
 
@@ -152,19 +155,126 @@ public class MainActivity extends AppCompatActivity {
                 start_date = textViewdate.getText().toString().trim();
                 end_date = textViewenddate.getText().toString().trim();
 
-                if (CheckNetwork.isInternetAvailable(MainActivity.this))
+                if (start_date != null && !start_date.isEmpty() && !start_date.equals(null) && !start_date.equals("Start date"))
                 {
-                    mPlanetlist.clear();
-                    new GetProductData().execute();
+                    if (end_date != null && !end_date.isEmpty() && !end_date.equals(null) && !end_date.equals("End date"))
+                    {
+                        if (CheckNetwork.isInternetAvailable(MainActivity.this))
+                        {
+                            mPlanetlist.clear();
+//                    new GetProductData().execute();
+                            sendAndRequestResponse();
+                        }
+                        else
+                        {
+                            isNetworkOnline(MainActivity.this);
+                        }
+                    }
+                    else
+                    {
+                        Toast.makeText(MainActivity.this, "Select end date", Toast.LENGTH_LONG).show();
+                    }
                 }
                 else
                 {
-                    isNetworkOnline(MainActivity.this);
+                    Toast.makeText(MainActivity.this, "Select start date", Toast.LENGTH_LONG).show();
                 }
-
             }
         });
 
+    }
+
+    private void sendAndRequestResponse() {
+
+        String queryUrl = "https://api.nasa.gov/neo/rest/v1/feed?";
+        String queryKey = "api_key=rtg73OHSKTlFdr1cqMAumYl9aWfoQReBFlrV6izc";
+        String queryDate = "startdate=" + start_date + "&end_date=" + end_date + "&";
+        String url = queryUrl + queryDate + queryKey;
+
+        final ProgressDialog progressDialog = new ProgressDialog(this);
+        progressDialog.setMessage("Loading...");
+        progressDialog.show();
+
+        StringRequest stringRequest = new StringRequest(Request.Method.GET, url,
+                new Response.Listener<String>() {
+                    @Override
+                    public void onResponse(String response) {
+                        //hiding the progressbar after completion
+                        try {
+
+                            JSONObject obj = new JSONObject(response);
+                            JSONObject a1 = obj.getJSONObject("near_earth_objects");
+                            JSONArray classArray = a1.getJSONArray("2021-05-09");
+
+                            for (int i = 0; i < classArray.length(); i++) {
+
+                                JSONObject b1 = classArray.getJSONObject(i);
+                                id = b1.getString("neo_reference_id");
+                                String mang = b1.getString("absolute_magnitude_h");
+                                JSONObject magnitute = b1.getJSONObject("estimated_diameter");
+                                JSONObject kilometer = magnitute.getJSONObject("kilometers");
+                                magnitude = kilometer.getString("estimated_diameter_max");
+                                JSONArray arr = b1.getJSONArray("close_approach_data");
+                                for(int j = 0; j < arr.length(); j++)
+                                {
+                                    JSONObject vc_obj = arr.getJSONObject(j);
+                                    close_approach_date = vc_obj.getString("close_approach_date");
+                                    JSONObject j_obj = vc_obj.getJSONObject("relative_velocity");
+                                    velocity = j_obj.getString("kilometers_per_hour");
+                                    JSONObject j_obj1 = vc_obj.getJSONObject("miss_distance");
+                                    distance = j_obj1.getString("kilometers");
+
+                                    AstroidPlanet planet = new AstroidPlanet(id, magnitude, velocity, distance, close_approach_date, mang);
+                                    mPlanetlist.add(planet);
+                                }
+                            }
+                            adapter = new AstroidAdapter(MainActivity.this, mPlanetlist);
+                            recyclerView.setAdapter(adapter);
+                            calculation();
+                            progressDialog.dismiss();
+
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                            progressDialog.dismiss();
+                        }
+                    }
+                },
+                new Response.ErrorListener() {
+                    @Override
+                    public void onErrorResponse(VolleyError error) {
+                        progressDialog.dismiss();
+                        Toast.makeText(getApplicationContext(), error.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+        RequestQueue requestQueue = Volley.newRequestQueue(this);
+        requestQueue.add(stringRequest);
+    }
+
+    public void calculation()
+    {
+        linearLayout.setVisibility(View.VISIBLE);
+        double total = 0;
+        double avg = 0;
+        int size = mPlanetlist.size();
+        for(int i = 0; i < mPlanetlist.size(); i++)
+        {
+            AstroidPlanet planet = mPlanetlist.get(i);
+            double dist = Double.parseDouble(planet.getDistance());
+            total = total+dist;
+        }
+        avg = total/size;
+        DecimalFormat df = new DecimalFormat();
+        df.setMaximumFractionDigits(2);
+        textViewavg.setText(df.format(avg));
+
+        getBarEntries();
+        barDataSet = new BarDataSet(barEntriesArrayList, "Astroid Neo App");
+        barData = new BarData(barDataSet);
+        barData.setBarWidth(0.9f);
+        barChart.setData(barData);
+        barDataSet.setValueTextColor(Color.BLACK);
+        barDataSet.setValueTextSize(16f);
+        barChart.getDescription().setEnabled(false);
     }
 
     private void getBarEntries() {
@@ -174,13 +284,14 @@ public class MainActivity extends AppCompatActivity {
         // adding new entry to our array list with bar
         // entry and passing x and y axis value to it.
 
-        barEntriesArrayList.add(new BarEntry(1f, 20));
-        barEntriesArrayList.add(new BarEntry(2f, 20));
-        barEntriesArrayList.add(new BarEntry(3f, 21));
-        barEntriesArrayList.add(new BarEntry(4f, 20));
-        barEntriesArrayList.add(new BarEntry(5f, 19));
-        barEntriesArrayList.add(new BarEntry(6f, 29));
-        barEntriesArrayList.add(new BarEntry(7f, 24));
+        for(int i = 0; i < mPlanetlist.size(); i++)
+        {
+            AstroidPlanet planet = mPlanetlist.get(i);
+            double magnitude = Double.parseDouble(planet.getAbsolute_magnitude_h());
+            float fp1 = (float)magnitude;
+            barEntriesArrayList.add(new BarEntry(i+1, fp1));
+        }
+
     }
 
     public static boolean isNetworkOnline(Context con)
@@ -228,117 +339,121 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    class GetProductData extends AsyncTask<String,String,String>
-    {
-        @Override
-        protected void onPreExecute() {
-            super.onPreExecute();
-            progress = new ProgressDialog(MainActivity.this);
-            progress.setMessage("Loading...");
-            progress.setProgressStyle(ProgressDialog.STYLE_SPINNER);
-            progress.setIndeterminate(true);
-            progress.setProgress(0);
-            progress.show();
-        }
 
-        @SuppressLint("WrongThread")
-        @Override
-        protected String doInBackground(String... strings) {
 
-            shh = new ServiceHandler();
-            String queryUrl = "https://api.nasa.gov/neo/rest/v1/feed?";
-            String queryKey = "api_key=rtg73OHSKTlFdr1cqMAumYl9aWfoQReBFlrV6izc";
-            String queryDate = "startdate=" + start_date + "&end_date=" + end_date + "&";
-            String url = queryUrl + queryDate + queryKey;
-            Log.d("Url:",">"+url);
 
-            try {
-
-                List<NameValuePair> params2 = new ArrayList<>();
-                String jsonStr = shh.makeServiceCall(url, ServiceHandler.GET, null);
-
-                if (jsonStr != null) {
-
-                    JSONObject c1 = new JSONObject(jsonStr);
-                    JSONObject a1 = c1.getJSONObject("near_earth_objects");
-                    JSONArray classArray = a1.getJSONArray("2021-05-09");
-                    for(int i = 0; i < classArray.length(); i++)
-                    {
-                        JSONObject b1 = classArray.getJSONObject(i);
-                        id = b1.getString("neo_reference_id");
-                        String mang = b1.getString("absolute_magnitude_h");
-                        JSONObject magnitute = b1.getJSONObject("estimated_diameter");
-                        JSONObject kilometer = magnitute.getJSONObject("kilometers");
-                        magnitude = kilometer.getString("estimated_diameter_max");
-                        JSONArray arr = b1.getJSONArray("close_approach_data");
-                        for(int j = 0; j < arr.length(); j++)
-                        {
-                            JSONObject vc_obj = arr.getJSONObject(j);
-                            close_approach_date = vc_obj.getString("close_approach_date");
-                            JSONObject j_obj = vc_obj.getJSONObject("relative_velocity");
-                            velocity = j_obj.getString("kilometers_per_hour");
-                            JSONObject j_obj1 = vc_obj.getJSONObject("miss_distance");
-                            distance = j_obj1.getString("kilometers");
-
-                            AstroidPlanet planet = new AstroidPlanet(id, magnitude, velocity, distance, close_approach_date, mang);
-                            mPlanetlist.add(planet);
-
-                            arrayid.add(id);
-
-                        }
-                    }
-
-                } else {
-                }
-
-            } catch (JSONException e) {
-                e.printStackTrace();
-                Log.e("ServiceHandler","Json Error");
-            }
-            return null;
-        }
-
-        @Override
-        protected void onPostExecute(String s) {
-            super.onPostExecute(s);
-            progress.dismiss();
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-
-                    arrayList.addAll(arrayid);
-                    linearLayout.setVisibility(View.VISIBLE);
-
-                    adapter = new AstroidAdapter(MainActivity.this, mPlanetlist);
-                    recyclerView.setAdapter(adapter);
-
-                    double total = 0;
-                    double avg = 0;
-                    int size = mPlanetlist.size();
-                    for(int i = 0; i < mPlanetlist.size(); i++)
-                    {
-                        AstroidPlanet planet = mPlanetlist.get(i);
-                        double dist = Double.parseDouble(planet.getDistance());
-                        total = total+dist;
-                    }
-                    avg = total/size;
-                    DecimalFormat df = new DecimalFormat();
-                    df.setMaximumFractionDigits(2);
-                    textViewavg.setText(df.format(avg));
-
-                    getBarEntries();
-                    barDataSet = new BarDataSet(barEntriesArrayList, "Astroid Neo App");
-                    barData = new BarData(barDataSet);
-                    barChart.setData(barData);
-                    barDataSet.setValueTextColor(Color.BLACK);
-                    barDataSet.setValueTextSize(16f);
-                    barChart.getDescription().setEnabled(false);
-
-                }
-            });
-
-        }
-
-    }
+//    class GetProductData extends AsyncTask<String,String,String>
+//    {
+//        @Override
+//        protected void onPreExecute() {
+//            super.onPreExecute();
+//            progress = new ProgressDialog(MainActivity.this);
+//            progress.setMessage("Loading...");
+//            progress.setProgressStyle(ProgressDialog.STYLE_SPINNER);
+//            progress.setIndeterminate(true);
+//            progress.setProgress(0);
+//            progress.show();
+//        }
+//
+//        @SuppressLint("WrongThread")
+//        @Override
+//        protected String doInBackground(String... strings) {
+//
+//            shh = new ServiceHandler();
+//            String queryUrl = "https://api.nasa.gov/neo/rest/v1/feed?";
+//            String queryKey = "api_key=rtg73OHSKTlFdr1cqMAumYl9aWfoQReBFlrV6izc";
+//            String queryDate = "startdate=" + start_date + "&end_date=" + end_date + "&";
+//            String url = queryUrl + queryDate + queryKey;
+//            Log.d("Url:",">"+url);
+//
+//            try {
+//
+//                List<NameValuePair> params2 = new ArrayList<>();
+//                String jsonStr = shh.makeServiceCall(url, ServiceHandler.GET, null);
+//
+//                if (jsonStr != null) {
+//
+//                    JSONObject c1 = new JSONObject(jsonStr);
+//                    JSONObject a1 = c1.getJSONObject("near_earth_objects");
+//                    JSONArray classArray = a1.getJSONArray("2021-05-09");
+//                    for(int i = 0; i < classArray.length(); i++)
+//                    {
+//                        JSONObject b1 = classArray.getJSONObject(i);
+//                        id = b1.getString("neo_reference_id");
+//                        String mang = b1.getString("absolute_magnitude_h");
+//                        JSONObject magnitute = b1.getJSONObject("estimated_diameter");
+//                        JSONObject kilometer = magnitute.getJSONObject("kilometers");
+//                        magnitude = kilometer.getString("estimated_diameter_max");
+//                        JSONArray arr = b1.getJSONArray("close_approach_data");
+//                        for(int j = 0; j < arr.length(); j++)
+//                        {
+//                            JSONObject vc_obj = arr.getJSONObject(j);
+//                            close_approach_date = vc_obj.getString("close_approach_date");
+//                            JSONObject j_obj = vc_obj.getJSONObject("relative_velocity");
+//                            velocity = j_obj.getString("kilometers_per_hour");
+//                            JSONObject j_obj1 = vc_obj.getJSONObject("miss_distance");
+//                            distance = j_obj1.getString("kilometers");
+//
+//                            AstroidPlanet planet = new AstroidPlanet(id, magnitude, velocity, distance, close_approach_date, mang);
+//                            mPlanetlist.add(planet);
+//
+//                            arrayid.add(id);
+//
+//                        }
+//                    }
+//
+//                } else {
+//                }
+//
+//            } catch (JSONException e) {
+//                e.printStackTrace();
+//                Log.e("ServiceHandler","Json Error");
+//            }
+//            return null;
+//        }
+//
+//        @Override
+//        protected void onPostExecute(String s) {
+//            super.onPostExecute(s);
+//            progress.dismiss();
+//            runOnUiThread(new Runnable() {
+//                @Override
+//                public void run() {
+//
+//                    arrayList.addAll(arrayid);
+//                    linearLayout.setVisibility(View.VISIBLE);
+//
+//                    adapter = new AstroidAdapter(MainActivity.this, mPlanetlist);
+//                    recyclerView.setAdapter(adapter);
+//
+//                    double total = 0;
+//                    double avg = 0;
+//                    int size = mPlanetlist.size();
+//                    for(int i = 0; i < mPlanetlist.size(); i++)
+//                    {
+//                        AstroidPlanet planet = mPlanetlist.get(i);
+//                        double dist = Double.parseDouble(planet.getDistance());
+//                        total = total+dist;
+//                    }
+//                    avg = total/size;
+//                    DecimalFormat df = new DecimalFormat();
+//                    df.setMaximumFractionDigits(2);
+//                    textViewavg.setText(df.format(avg));
+//
+//                    getBarEntries();
+//                    barDataSet = new BarDataSet(barEntriesArrayList, "Astroid Neo App");
+//                    barData = new BarData(barDataSet);
+//                    barData.setBarWidth(0.9f);
+//                    barChart.setData(barData);
+//                    barDataSet.setValueTextColor(Color.BLACK);
+//                    barDataSet.setValueTextSize(16f);
+//                    barChart.getDescription().setEnabled(false);
+//
+//                }
+//            });
+//
+//        }
+//
+//    }
 
 }

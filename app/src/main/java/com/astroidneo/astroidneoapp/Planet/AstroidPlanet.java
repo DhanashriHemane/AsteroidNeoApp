@@ -9,6 +9,10 @@ public class AstroidPlanet {
     String Date;
     String absolute_magnitude_h;
 
+    public AstroidPlanet() {
+
+    }
+
     public AstroidPlanet(String id, String magnitude, String velocity, String distance, String date, String absolute_magnitude_h) {
         Id = id;
         Magnitude = magnitude;
